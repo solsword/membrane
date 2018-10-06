@@ -30,7 +30,7 @@ def arrow(fr, to):
   pyglet.gl.glVertex2f(ar2x, ar2y)
   pyglet.gl.glEnd()
 
-def draw_solution(sol):
+def draw_solution(window, sol):
   """
   Draws a given solution dictionary that maps grid point tuples to each other
   to indicate the path from start to finish.
@@ -49,65 +49,110 @@ def draw_solution(sol):
     arrow(key, sol[key])
   pyglet.gl.glPopMatrix()
 
-# Define our window and it's current_solution attribute
-window = pyglet.window.Window()
-window.current_solution = {}
-
-# Bind event handlers
-@window.event
-def on_draw():
-  """ Draw the current solution. """
-  window.clear()
-  draw_solution(window.current_solution)
-
-@window.event
-def on_key_press(symbol, modifiers):
-  """ Exit if `q` is pressed, otherwise advance to the next solution. """
-  if symbol in (pyglet.window.key.Q, pyglet.window.key.ESCAPE):
-    pyglet.app.exit()
-  else:
-    advance()
-
-@window.event
-def on_mouse_press(x, y, button, modifiers):
-  """ Advance to the next solution on left-click. """
-  if button == pyglet.window.mouse.LEFT:
-    advance()
-
-def advance():
-  """
-  Ask for the next solution, and update our current solution accordingly. If
-  we're out of solutions, just print a message.
-  """
-  try:
-    model = next(window.solgen)
-    process_model(model)
-  except StopIteration:
-    print("Out of solutions.")
-
 def process_model(model):
   """
-  Converts a clingo model into a grid-point map solution.
+  Converts a clingo model into a grid-point-map solution.
   """
-  window.current_solution = {}
+  result = {}
   for atom in model.symbols(atoms=True):
     if atom.name == "next":
       from_, to_ = atom.arguments
       fr = tuple(a.number for a in from_.arguments)
       to = tuple(a.number for a in to_.arguments)
-      window.current_solution[fr] = to
+      result[fr] = to
+
+  return result
+
+def nextlist(solution):
+  """
+  Converts a grid-point-map solution into a nextlist.
+  """
+  result = [-1] * 5 * 5
+  for key in solution:
+    fcol = key[0] - 1
+    frow = key[1] - 1
+    fidx = fcol + 5*frow
+    tcol = solution[key][0] - 1
+    trow = solution[key][1] - 1
+    tidx = tcol + 5*trow
+    result[fidx] = tidx
+
+  return result
+
+def line(nextlist):
+  """
+  Converts a nextlist to a line of JSON.
+  """
+  return "[{}],".format(",".join(str(x) for x in nextlist))
+
+def display_solutions(solgen):
+  """
+  Creates a pyglet window for displaying solutions from the given generator.
+  """
+  # Define our window and our current_solution attribute
+  window = pyglet.window.Window()
+  current_solution = {}
+
+  # Bind event handlers
+  @window.event
+  def on_draw():
+    """ Draw the current solution. """
+    nonlocal window, current_solution
+    window.clear()
+    draw_solution(window, current_solution)
+
+  @window.event
+  def on_key_press(symbol, modifiers):
+    """ Exit if `q` is pressed, otherwise advance to the next solution. """
+    if symbol in (pyglet.window.key.Q, pyglet.window.key.ESCAPE):
+      pyglet.app.exit()
+    else:
+      advance()
+
+  @window.event
+  def on_mouse_press(x, y, button, modifiers):
+    """ Advance to the next solution on left-click. """
+    if button == pyglet.window.mouse.LEFT:
+      advance()
+
+  def advance():
+    """
+    Ask for the next solution, and update our current solution accordingly. If
+    we're out of solutions, just print a message.
+    """
+    nonlocal solgen, current_solution
+    try:
+      model = next(solgen)
+      current_solution = process_model(model)
+    except StopIteration:
+      print("Out of solutions.")
+
+  advance()
+  pyglet.app.run()
+
+def curate_solutions(solgen):
+  """
+  Converts models to next-list format and writes them into a file.
+  """
+  with open("patterns.json", "w") as fout:
+    fout.write("[\n")
+    nl = ""
+    for sol in solgen:
+      fout.write(nl)
+      nl = line(nextlist(process_model(sol))) + "\n"
+
+    fout.write(nl[:-2] + "\n]\n")
 
 def main(prg):
   """
   Main program called automatically by clingo.
   """
-  global PROGRAM
   prg.configuration.solve.models = 0
   #prg.ground([("solve",[1, 3, 5, 3])])
   prg.ground([("solve",[])])
-  window.solgen = prg.solve(yield_=True)
-  advance()
-  pyglet.app.run()
+  solgen = prg.solve(yield_=True)
+  #display_solutions(solgen)
+  curate_solutions(solgen)
 #end.
 
 
