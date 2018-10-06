@@ -1,0 +1,14 @@
+# Membrane
+
+Clingo + pyglet code to solve 5x5 Hamiltonian paths and display solutions.
+
+## Dependencies
+
+Python 3
+Clingo
+Pyglet
+
+## How to Run
+
+Run as `clingo tile.lp`. In the window that pops up, click or press any key to
+display the next model. Use `q` to quit.
