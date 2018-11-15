@@ -3,6 +3,8 @@
 import pyglet
 import clingo
 
+grid_size = 7 # Must match grid_size const below!
+
 def arrow(fr, to):
   """ Draws an arrow from (x, y) to (w, z). """
   fx, fy = fr
@@ -36,7 +38,7 @@ def draw_solution(window, sol):
   to indicate the path from start to finish.
   """
   scale = 50
-  width = scale * 5
+  width = scale * grid_size
   offset = scale
   pyglet.gl.glPushMatrix()
   pyglet.gl.glTranslatef(
@@ -46,12 +48,14 @@ def draw_solution(window, sol):
   )
   pyglet.gl.glScalef(scale, scale, 1)
   for key in sol:
-    arrow(key, sol[key])
+    if key not in ("start", "end"):
+      arrow(key, sol[key])
   pyglet.gl.glPopMatrix()
 
 def process_model(model):
   """
-  Converts a clingo model into a grid-point-map solution.
+  Converts a clingo model into a grid-point-map solution, with extra 'start'
+  and 'end' keys.
   """
   result = {}
   for atom in model.symbols(atoms=True):
@@ -60,30 +64,49 @@ def process_model(model):
       fr = tuple(a.number for a in from_.arguments)
       to = tuple(a.number for a in to_.arguments)
       result[fr] = to
+    elif atom.name == "start":
+      xy = tuple(a.number - 1 for a in atom.arguments)
+      result["start"] = xy
+    elif atom.name == "end":
+      xy = tuple(a.number - 1 for a in atom.arguments)
+      result["end"] = xy
 
   return result
 
 def nextlist(solution):
   """
-  Converts a grid-point-map solution into a nextlist.
+  Converts a grid-point-map solution into a (start, end, nextlist) tuple.
   """
-  result = [-1] * 5 * 5
+  result = [-1] * (grid_size * grid_size)
   for key in solution:
+    if key in ("start", "end"):
+      continue
     fcol = key[0] - 1
     frow = key[1] - 1
-    fidx = fcol + 5*frow
+    fidx = fcol + grid_size*frow
     tcol = solution[key][0] - 1
     trow = solution[key][1] - 1
-    tidx = tcol + 5*trow
+    tidx = tcol + grid_size*trow
     result[fidx] = tidx
 
+  return (solution["start"], solution["end"], result)
+
+def idxlist(start, nextlist):
+  """
+  Converts a start and a nextlist into an ordered-indices list.
+  """
+  result = [ start[0] + grid_size*start[1] ]
+  next = nextlist[result[-1]]
+  while next != -1:
+    result.append(next)
+    next = nextlist[next]
   return result
 
-def line(nextlist):
+def line(idxlist):
   """
-  Converts a nextlist to a line of JSON.
+  Converts an idxlist to a line of JSON.
   """
-  return "[{}],".format(",".join(str(x) for x in nextlist))
+  return "[{}],".format(",".join(str(x) for x in idxlist))
 
 def display_solutions(solgen):
   """
@@ -139,7 +162,8 @@ def curate_solutions(solgen):
     nl = ""
     for sol in solgen:
       fout.write(nl)
-      nl = line(nextlist(process_model(sol))) + "\n"
+      start, end, nexts = nextlist(process_model(sol))
+      nl = line(idxlist(start, nexts)) + "\n"
 
     fout.write(nl[:-2] + "\n]\n")
 
@@ -150,17 +174,20 @@ def main(prg):
   prg.configuration.solve.models = 0
   #prg.ground([("solve",[1, 3, 5, 3])])
   prg.ground([("solve",[])])
+  print("Finished grounding model, attempting to solve...")
   solgen = prg.solve(yield_=True)
-  #display_solutions(solgen)
-  curate_solutions(solgen)
+  display_solutions(solgen)
+  #curate_solutions(solgen)
 #end.
 
 
 #program solve.
 
+#const grid_size = 7.
+
 % Our coordinate grid
-x(1..5).
-y(1..5).
+x(1..grid_size).
+y(1..grid_size).
 
 % Tiles
 #show tile/2.
@@ -173,30 +200,34 @@ adjacent(tile(X, Y), tile(W, Z)) :-
   |X-W| + |Y-Z| == 1.
 
 edge(tile(1, Y)) :- tile(1, Y).
-edge(tile(5, Y)) :- tile(5, Y).
+edge(tile(grid_size, Y)) :- tile(grid_size, Y).
 edge(tile(X, 1)) :- tile(X, 1).
-edge(tile(X, 5)) :- tile(X, 5).
+edge(tile(X, grid_size)) :- tile(X, grid_size).
 
 % Start/end parameters
 #show start/2.
 #show end/2.
 
 % Start at left to break rotational symmetry
+% Only odd-numbered tiles can be start tiles (required by parity constraint)
 1 = {
   start(1, Y)
   : edge(tile(1, Y)),
     Y \ 2 == 1
 }.
 
-% End anywhere
+% End on any odd-numbered edge tile (required by parity constraint)
 1 = {
   end(X, Y)
   : edge(tile(X, Y)),
     X \ 2 == 1,
     Y \ 2 == 1
 }.
-% Except center-left
-:- end(1, 3).
+% Except on the left edge excluding corners
+:-
+  end(1, Y),
+  Y != 0,
+  Y != grid_size.
 
 #show next/2.
 

@@ -1,6 +1,6 @@
 # Membrane
 
-Clingo + pyglet code to solve 5x5 Hamiltonian paths and display solutions.
+Clingo + pyglet code to solve NxN Hamiltonian paths and display solutions.
 
 ## Dependencies
 
